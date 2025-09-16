@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+# Disallow admin areas
+Disallow: /admin/
+Disallow: /api/
+
+# Sitemap location
+Sitemap: https://minimal-store.com/sitemap.xml
+
+# Crawl-delay for all bots
+Crawl-delay: 1
