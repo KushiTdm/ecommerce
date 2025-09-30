@@ -1,4 +1,4 @@
-// src/pages/ProductsPage.tsx - Version avec logs détaillés
+// src/pages/ProductsPage.tsx - Fixed version
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -11,8 +11,9 @@ export const ProductsPage: React.FC = () => {
   const { category } = useParams<{ category: string }>();
   const { products, loading, error, fetchProducts } = useStore();
   const [filteredProducts, setFilteredProducts] = useState(products);
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState(category || 'all');
   const [sortBy, setSortBy] = useState('name');
+  const [hasInitialLoad, setHasInitialLoad] = useState(false);
 
   const categories = ['all', 'clothing', 'accessories', 'shoes', 'bags'];
 
@@ -24,28 +25,55 @@ export const ProductsPage: React.FC = () => {
     loading,
     error,
     selectedCategory,
-    filteredCount: filteredProducts.length
+    filteredCount: filteredProducts.length,
+    hasInitialLoad
   });
 
+  // FIXED: Initial load effect - runs once on mount to fetch initial data
   useEffect(() => {
-    console.log('🔄 ===== ProductsPage: Category Effect =====');
-    console.log('🔄 Category changed to:', category);
-    console.log('🔄 Previous selectedCategory:', selectedCategory);
+    console.log('🔄 ===== ProductsPage: Initial Load Effect =====');
     
-    if (category && category !== selectedCategory) {
-      console.log('🎯 Setting selectedCategory to:', category);
-      setSelectedCategory(category);
-      console.log('📞 Calling fetchProducts with category:', category);
-      fetchProducts(category);
-    } else if (!category && selectedCategory !== 'all') {
-      console.log('🎯 No category param, setting to "all"');
-      setSelectedCategory('all');
-      console.log('📞 Calling fetchProducts with no category (all products)');
-      fetchProducts(); // Charge tous les produits
+    if (!hasInitialLoad) {
+      console.log('🚀 Performing initial load...');
+      setHasInitialLoad(true);
+      
+      if (category && category !== 'all') {
+        console.log('📞 Initial fetch with category:', category);
+        setSelectedCategory(category);
+        fetchProducts(category);
+      } else {
+        console.log('📞 Initial fetch all products');
+        setSelectedCategory('all');
+        fetchProducts(); // Fetch all products
+      }
     }
+  }, []); // Empty dependency array - runs only once on mount
+
+  // Category change effect - handles URL changes
+  useEffect(() => {
+    console.log('🔄 ===== ProductsPage: Category URL Effect =====');
+    console.log('🔄 Category param changed to:', category);
+    console.log('🔄 Current selectedCategory:', selectedCategory);
+    console.log('🔄 Has initial load:', hasInitialLoad);
     
-    console.log('🔄 ===== Category Effect END =====');
-  }, [category, fetchProducts]); // Removed selectedCategory from deps to prevent loops
+    // Only handle URL changes after initial load
+    if (hasInitialLoad) {
+      const newCategory = category || 'all';
+      
+      if (newCategory !== selectedCategory) {
+        console.log('🎯 URL category changed, updating to:', newCategory);
+        setSelectedCategory(newCategory);
+        
+        if (newCategory === 'all') {
+          console.log('📞 Fetching all products due to URL change');
+          fetchProducts();
+        } else {
+          console.log('📞 Fetching products for category due to URL change:', newCategory);
+          fetchProducts(newCategory);
+        }
+      }
+    }
+  }, [category, hasInitialLoad, selectedCategory, fetchProducts]);
 
   useEffect(() => {
     console.log('🔄 ===== ProductsPage: Products Filter Effect =====');
@@ -62,12 +90,20 @@ export const ProductsPage: React.FC = () => {
     let filtered = [...products];
     console.log('🔍 Starting with', filtered.length, 'products');
     
-    // Filter by category - CORRECTION ICI
+    // Filter by category - Only apply client-side filtering if we have "all" products
+    // If we fetched by category, the server already filtered them
     if (selectedCategory !== 'all') {
       const beforeFilter = filtered.length;
       filtered = filtered.filter(product => {
         // Vérifie que la catégorie existe et n'est pas null/undefined
-        const productCategory = product.category?.toLowerCase();
+        let productCategory: string | undefined;
+        
+        if (typeof product.category === 'string') {
+          productCategory = product.category.toLowerCase();
+        } else if (product.category && typeof product.category === 'object') {
+          productCategory = (product.category as any).name?.toLowerCase() || (product.category as any).slug?.toLowerCase();
+        }
+        
         if (!productCategory) {
           console.log('⚠️ Product without category:', product.name);
           return false;
@@ -103,7 +139,7 @@ export const ProductsPage: React.FC = () => {
       count: filtered.length,
       sample: filtered.slice(0, 3).map(p => ({
         name: p.name,
-        category: p.category,
+        category: p.category?.name || (typeof p.category === 'string' ? p.category : 'Unknown'),
         price: p.price
       }))
     });
@@ -113,7 +149,7 @@ export const ProductsPage: React.FC = () => {
   }, [products, selectedCategory, sortBy]);
 
   const handleCategoryChange = (newCategory: string) => {
-    console.log('🎯 ===== ProductsPage: Category Change =====');
+    console.log('🎯 ===== ProductsPage: Manual Category Change =====');
     console.log('🎯 Changing category from', selectedCategory, 'to', newCategory);
     
     setSelectedCategory(newCategory);
@@ -126,7 +162,7 @@ export const ProductsPage: React.FC = () => {
       fetchProducts(newCategory);
     }
     
-    console.log('🎯 ===== Category Change END =====');
+    console.log('🎯 ===== Manual Category Change END =====');
   };
 
   const handleSortChange = (newSort: string) => {
@@ -144,6 +180,7 @@ export const ProductsPage: React.FC = () => {
     selectedCategory,
     sortBy,
     categoryParam: category,
+    hasInitialLoad,
     firstProduct: products[0]?.name || 'None',
     firstFiltered: filteredProducts[0]?.name || 'None'
   });
