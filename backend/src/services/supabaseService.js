@@ -20,7 +20,6 @@ class SupabaseService {
     try {
       console.log('🔍 SupabaseService: getProducts called with filters:', filters);
       
-      // Base query avec les bonnes jointures
       let query = this.supabase
         .from('products')
         .select(`
@@ -64,53 +63,44 @@ class SupabaseService {
         `)
         .eq('in_stock', true);
 
-      // CORRECTION: Filtre par catégorie amélioré
       if (filters.category && filters.category !== 'all') {
         console.log('🎯 Applying category filter:', filters.category);
         
-        // Normaliser le terme de recherche
         const searchTerm = filters.category.toLowerCase().trim();
         
         try {
-          // Essayer de trouver la catégorie par slug ou nom (case insensitive)
           const { data: categoryData, error: categoryError } = await this.supabase
             .from('categories')
             .select('id, name, slug')
             .or(`slug.ilike.${searchTerm},name.ilike.%${searchTerm}%`)
             .limit(1)
-            .maybeSingle(); // Utilise maybeSingle pour éviter les erreurs si pas trouvé
+            .maybeSingle();
 
           if (categoryError) {
             console.error('❌ Error searching category:', categoryError);
-            // Continue sans filtrage plutôt que de planter
           } else if (categoryData) {
             console.log('✅ Found category:', categoryData);
             query = query.eq('category_id', categoryData.id);
           } else {
             console.log('⚠️ No category found for:', filters.category);
-            // Si aucune catégorie trouvée, retourner un tableau vide plutôt que tous les produits
             return { data: [], count: 0 };
           }
         } catch (categorySearchError) {
           console.error('💥 Category search failed:', categorySearchError);
-          // En cas d'erreur, continuer sans filtrage
         }
       }
       
-      // Filtre featured
       if (filters.featured !== undefined) {
         console.log('⭐ Applying featured filter:', filters.featured);
         query = query.eq('featured', filters.featured);
       }
       
-      // Recherche textuelle
       if (filters.search) {
         console.log('🔍 Applying search filter:', filters.search);
         const searchTerm = `%${filters.search}%`;
         query = query.or(`name.ilike.${searchTerm},description.ilike.${searchTerm},short_description.ilike.${searchTerm}`);
       }
       
-      // Filtres de prix
       if (filters.minPrice !== undefined) {
         console.log('💰 Applying minPrice filter:', filters.minPrice);
         query = query.gte('price', filters.minPrice);
@@ -121,12 +111,10 @@ class SupabaseService {
         query = query.lte('price', filters.maxPrice);
       }
 
-      // Tri
       const sortBy = filters.sortBy || 'created_at';
       const sortOrder = filters.sortOrder || 'desc';
       console.log('📊 Applying sort:', { sortBy, sortOrder });
       
-      // Gérer les différents types de tri
       if (sortBy === 'name') {
         query = query.order('name', { ascending: sortOrder === 'asc' });
       } else if (sortBy === 'price') {
@@ -135,7 +123,6 @@ class SupabaseService {
         query = query.order('created_at', { ascending: sortOrder === 'asc' });
       }
 
-      // Pagination
       if (filters.limit) {
         console.log('📄 Applying limit:', filters.limit);
         query = query.limit(filters.limit);
@@ -154,7 +141,6 @@ class SupabaseService {
         throw error;
       }
       
-      // Transformer les données pour s'assurer que les images sont triées par position
       const transformedData = data?.map(product => ({
         ...product,
         images: product.images?.sort((a, b) => a.position - b.position) || [],
@@ -164,12 +150,7 @@ class SupabaseService {
       console.log('✅ Supabase query success:', {
         dataCount: transformedData.length,
         count,
-        firstProduct: transformedData[0]?.name || 'None',
-        sampleCategories: transformedData.slice(0, 3).map(p => ({
-          productName: p.name,
-          categoryName: p.category?.name || 'No category',
-          categoryId: p.category?.id || 'No ID'
-        }))
+        firstProduct: transformedData[0]?.name || 'None'
       });
       
       return { data: transformedData, count: count || transformedData.length };
@@ -244,12 +225,11 @@ class SupabaseService {
       if (error) {
         console.error('❌ Error fetching product by ID:', error);
         if (error.code === 'PGRST116') {
-          return null; // Product not found
+          return null;
         }
         throw error;
       }
 
-      // Transformer les données
       const transformedData = {
         ...data,
         images: data.images?.sort((a, b) => a.position - b.position) || [],
@@ -267,6 +247,49 @@ class SupabaseService {
     }
   }
 
+  // NOUVEAU: Vérification du stock
+  async checkProductStock(productId, variantId, requestedQuantity) {
+    try {
+      console.log('📦 Checking stock:', { productId, variantId, requestedQuantity });
+      
+      if (variantId) {
+        const { data: variant, error } = await this.supabase
+          .from('product_variants')
+          .select('stock_quantity')
+          .eq('id', variantId)
+          .single();
+        
+        if (error || !variant) {
+          console.error('❌ Variant not found:', error);
+          return false;
+        }
+        
+        const hasStock = variant.stock_quantity >= requestedQuantity;
+        console.log('✅ Variant stock check:', { available: variant.stock_quantity, requested: requestedQuantity, hasStock });
+        return hasStock;
+      } else {
+        const { data: product, error } = await this.supabase
+          .from('products')
+          .select('stock_quantity, in_stock')
+          .eq('id', productId)
+          .single();
+        
+        if (error || !product) {
+          console.error('❌ Product not found:', error);
+          return false;
+        }
+        
+        const hasStock = product.in_stock && product.stock_quantity >= requestedQuantity;
+        console.log('✅ Product stock check:', { available: product.stock_quantity, requested: requestedQuantity, hasStock });
+        return hasStock;
+      }
+    } catch (error) {
+      console.error('💥 Error checking stock:', error);
+      logger.error('Error checking stock:', error);
+      return false;
+    }
+  }
+
   async getCategories() {
     try {
       console.log('🔍 SupabaseService: getCategories called');
@@ -281,11 +304,7 @@ class SupabaseService {
         throw error;
       }
       
-      console.log('✅ Categories fetched:', {
-        count: data?.length || 0,
-        categories: data?.map(cat => ({ name: cat.name, slug: cat.slug })) || []
-      });
-      
+      console.log('✅ Categories fetched:', data?.length || 0);
       return data || [];
       
     } catch (error) {
@@ -298,9 +317,7 @@ class SupabaseService {
   async getProductsByCategory(categorySlug) {
     try {
       console.log('🔍 SupabaseService: getProductsByCategory called with:', categorySlug);
-      
       return await this.getProducts({ category: categorySlug });
-      
     } catch (error) {
       console.error('💥 Error in getProductsByCategory:', error);
       logger.error('Error fetching products by category:', error);
@@ -308,7 +325,6 @@ class SupabaseService {
     }
   }
 
-  // Méthodes pour le panier
   async getCartItems(userId) {
     try {
       console.log('🛒 SupabaseService: getCartItems called for user:', userId);
@@ -322,6 +338,11 @@ class SupabaseService {
             name,
             slug,
             price,
+            category:categories!products_category_id_fkey(
+              id,
+              name,
+              slug
+            ),
             images:product_images(
               id,
               url,
@@ -339,12 +360,15 @@ class SupabaseService {
         throw error;
       }
       
-      // Transformer pour trier les images
       const transformedData = data?.map(item => ({
         ...item,
         product: item.product ? {
           ...item.product,
-          images: item.product.images?.sort((a, b) => a.position - b.position) || []
+          images: item.product.images?.sort((a, b) => a.position - b.position) || [],
+          product_images: item.product.images?.sort((a, b) => a.position - b.position) || [],
+          categories: item.product.category,
+          in_stock: true,
+          featured: false
         } : null
       })) || [];
       

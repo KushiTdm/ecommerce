@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Heart, ShoppingBag } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Heart, ShoppingBag, Check } from 'lucide-react';
 import { useStore, Product } from '../../store/useStore';
 
 interface ProductCardProps {
@@ -10,14 +10,39 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, index = 0 }) => {
-  const { addToCart, addToWishlist, removeFromWishlist, wishlist } = useStore();
+  const { addToCart, addToWishlist, removeFromWishlist, wishlist, setCartOpen } = useStore();
   const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [showCartFeedback, setShowCartFeedback] = useState(false);
+  const [isAddingToCart, setIsAddingToCart] = useState(false);
   const isInWishlist = wishlist.some(item => item.id === product.id);
 
-  const handleAddToCart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    addToCart(product, undefined, 1);
-  };
+  const handleAddToCart = async (e: React.MouseEvent) => {
+  e.preventDefault();
+  
+  if (isAddingToCart || !product.inStock) return;
+  
+  console.log('🛒 ProductCard: Adding to cart:', product.name);
+  setIsAddingToCart(true);
+  
+  try {
+    await addToCart(product, undefined, 1);
+    
+    // Show success feedback
+    console.log('✅ ProductCard: Successfully added to cart');
+    setShowCartFeedback(true);
+    
+    // Hide feedback after 2 seconds
+    setTimeout(() => {
+      setShowCartFeedback(false);
+    }, 2000);
+    
+  } catch (error) {
+    console.error('❌ ProductCard: Error adding to cart:', error);
+    alert('Failed to add item to cart. Please try again.');
+  } finally {
+    setIsAddingToCart(false);
+  }
+};
 
   const handleWishlistToggle = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -55,10 +80,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, index = 0 }) 
             <div className="flex space-x-2">
               <button
                 onClick={handleAddToCart}
-                className="bg-white text-black p-2 rounded-full hover:bg-black hover:text-white transition-colors duration-200"
+                disabled={isAddingToCart || !product.inStock}
+                className={`bg-white text-black p-2 rounded-full transition-colors duration-200 ${
+                  isAddingToCart 
+                    ? 'opacity-50 cursor-not-allowed' 
+                    : 'hover:bg-black hover:text-white'
+                } ${!product.inStock ? 'opacity-50 cursor-not-allowed' : ''}`}
                 aria-label="Add to cart"
               >
-                <ShoppingBag size={16} />
+                {isAddingToCart ? (
+                  <div className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full" />
+                ) : (
+                  <ShoppingBag size={16} />
+                )}
               </button>
               <button
                 onClick={handleWishlistToggle}
@@ -73,6 +107,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, index = 0 }) 
               </button>
             </div>
           </div>
+          
+          {/* Success feedback */}
+          <AnimatePresence>
+            {showCartFeedback && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center"
+              >
+                <div className="bg-white rounded-full p-4">
+                  <Check size={32} className="text-green-500" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           
           {/* Featured badge */}
           {product.featured && (

@@ -358,19 +358,93 @@ export const useStore = create<Store>()(
             return;
           }
           
-          // Transform cart items if needed
-          const transformedCart = (data || []).map(item => ({
-            id: item.id,
-            product: transformProduct(item.product),
-            variant: item.variant ? {
-              id: item.variant.id,
-              name: item.variant.name,
-              value: item.variant.value
-            } : undefined,
-            quantity: item.quantity
-          }));
+          console.log('📦 Store: Raw cart data from Supabase:', {
+            itemsCount: data?.length || 0,
+            firstItem: data?.[0] ? {
+              id: data[0].id,
+              quantity: data[0].quantity,
+              product: {
+                id: data[0].product?.id,
+                name: data[0].product?.name,
+                price: data[0].product?.price,
+                hasCategory: !!data[0].product?.categories || !!data[0].product?.category,
+                imagesCount: data[0].product?.images?.length || data[0].product?.product_images?.length || 0
+              }
+            } : null
+          });
           
-          console.log('✅ Store: Cart fetched:', transformedCart.length, 'items');
+          // Transform cart items
+          const transformedCart = (data || []).map((item, index) => {
+            console.log(`🔄 Store: Transforming cart item ${index + 1}:`, {
+              id: item.id,
+              productName: item.product?.name,
+              quantity: item.quantity,
+              productData: item.product
+            });
+            
+            if (!item.product) {
+              console.warn(`⚠️ Store: Cart item ${item.id} has no product data`);
+              return null;
+            }
+            
+            // Determine image source
+            const images = item.product.images || item.product.product_images || [];
+            const firstImage = images[0]?.url;
+            
+            // Determine category
+            let categoryName = 'Uncategorized';
+            if (item.product.categories) {
+              categoryName = typeof item.product.categories === 'string' 
+                ? item.product.categories 
+                : item.product.categories.name || 'Uncategorized';
+            } else if (item.product.category) {
+              categoryName = typeof item.product.category === 'string'
+                ? item.product.category
+                : item.product.category.name || 'Uncategorized';
+            }
+            
+            const transformedItem = {
+              id: item.id,
+              product: {
+                id: item.product.id,
+                name: item.product.name || 'Unknown Product',
+                price: typeof item.product.price === 'string' 
+                  ? parseFloat(item.product.price) 
+                  : item.product.price || 0,
+                image: firstImage || 'https://images.pexels.com/photos/996329/pexels-photo-996329.jpeg',
+                description: item.product.description || item.product.short_description || '',
+                category: categoryName,
+                inStock: item.product.in_stock ?? true,
+                featured: item.product.featured ?? false
+              },
+              variant: item.variant ? {
+                id: item.variant.id,
+                name: item.variant.name || 'Variant',
+                value: item.variant.value || ''
+              } : undefined,
+              quantity: item.quantity
+            };
+            
+            console.log(`✅ Store: Cart item transformed:`, {
+              id: transformedItem.id,
+              productName: transformedItem.product.name,
+              category: transformedItem.product.category,
+              price: transformedItem.product.price,
+              quantity: transformedItem.quantity
+            });
+            
+            return transformedItem;
+          }).filter(item => item !== null); // Remove null items
+          
+          console.log('✅ Store: Cart fetched and transformed:', {
+            totalItems: transformedCart.length,
+            items: transformedCart.map(item => ({
+              productName: item.product.name,
+              quantity: item.quantity,
+              total: item.product.price * item.quantity
+            }))
+          });
+          
           set({ cart: transformedCart });
         } catch (error) {
           console.error('💥 Store: Error in fetchCart:', error);
